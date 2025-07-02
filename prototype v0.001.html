@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Full-Screen Dynamic Video Background</title>
+    <!-- Tailwind CSS CDN for easy styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* Custom styles for the Inter font */
+        body {
+            font-family: 'Inter', sans-serif;
+            /* Ensure body takes full height and hides overflow for video */
+            min-height: 100vh;
+            margin: 0;
+            overflow: hidden; /* Hide scrollbars if video overflows */
+            position: relative; /* Needed for z-index context */
+            /* Add padding to the bottom to prevent content from being hidden by the fixed audio player */
+            padding-bottom: 70px;
+        }
+
+        /* Full-screen background video styling */
+        .background-video {
+            position: fixed; /* Fixes the video relative to the viewport */
+            top: 0;
+            left: 0;
+            min-width: 100%;
+            min-height: 100%;
+            width: auto;
+            height: auto;
+            z-index: -1; /* Puts the video behind other content */
+            object-fit: cover; /* Crops the video to cover the entire container */
+            object-position: right bottom; /* Changed focal point to bottom */
+            filter: brightness(70%); /* Slightly darken the video for better text readability */
+        }
+
+        /* Styles for the fixed audio player container */
+        .fixed-audio-player {
+            position: fixed; /* Fixes the element relative to the viewport */
+            bottom: 0; /* Aligns it to the bottom of the viewport */
+            left: 0; /* Aligns it to the left of the viewport */
+            width: 100%; /* Makes it span the full width */
+            /* Background color set to 85% transparent white */
+            background-color: rgba(255, 255, 255, 0.15); /* 15% opacity for 85% transparency */
+            padding: 0.75rem; /* Reduced padding inside the player */
+            box-shadow: 0 -4px 10px rgba(0, 0, 0, 0.1); /* Shadow at the top */
+            z-index: 1000; /* Ensures it stays on top of other content */
+            border-top-left-radius: 1rem; /* Rounded corners at the top */
+            border-top-right-radius: 1rem;
+            display: flex; /* Use flexbox for internal alignment */
+            justify-content: center; /* Center content horizontally */
+            align-items: center; /* Center content vertically */
+            flex-wrap: wrap; /* Allow items to wrap on smaller screens */
+            /* Removed transition as it's no longer needed for dynamic color changes */
+        }
+
+        /* Style for the custom control buttons */
+        .player-button {
+            @apply bg-blue-500 text-white p-3 rounded-full shadow-md transition-all duration-200 hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-300;
+            width: 44px; /* Slightly reduced width for circular buttons */
+            height: 44px; /* Slightly reduced height for circular buttons */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Style for the progress bar slider */
+        #progressBar {
+            @apply h-1.5 bg-gray-300 rounded-lg appearance-none cursor-pointer; /* Reduced height of progress bar */
+        }
+        #progressBar::-webkit-slider-thumb {
+            @apply appearance-none w-3 h-3 bg-blue-600 rounded-full shadow-md; /* Reduced thumb size */
+        }
+        #progressBar::-moz-range-thumb {
+            @apply appearance-none w-3 h-3 bg-blue-600 rounded-full shadow-md; /* Reduced thumb size */
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-100 to-purple-200">
+
+    <!-- Full-screen background video -->
+    <video id="backgroundVideo" autoplay muted loop class="background-video">
+        <!-- The source will be dynamically set by JavaScript -->
+        <source src="" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+
+    <!-- Content Overlay (optional, for text/elements on top of the video) -->
+    <div class="relative z-0 flex flex-col items-center justify-center min-h-screen text-center p-4">
+        <h1 id="songTitleDisplay" class="text-5xl md:text-7xl font-extrabold mb-4 drop-shadow-lg transition-colors duration-500 ease-in-out">
+            Click Play to Start
+        </h1>
+    </div>
+
+    <!-- Custom Audio Player Section - Fixed at the bottom -->
+    <div id="fixedAudioPlayer" class="fixed-audio-player">
+        <div class="w-full max-w-sm flex flex-col items-center">
+            <div class="flex items-center justify-center space-x-2 mb-2">
+                <button id="prevButton" class="player-button">
+                    <i class="fas fa-backward"></i>
+                </button>
+                <button id="playPauseButton" class="player-button text-xl">
+                    <i class="fas fa-play"></i>
+                </button>
+                <button id="nextButton" class="player-button">
+                    <i class="fas fa-forward"></i>
+                </button>
+            </div>
+
+            <div class="flex items-center space-x-1 w-full max-w-xs mb-0">
+                <span id="currentTime" class="text-xs text-gray-600">0:00</span>
+                <input type="range" id="progressBar" value="0" min="0" max="100" class="flex-grow">
+                <span id="duration" class="text-xs text-gray-600">0:00</span>
+            </div>
+        </div>
+    </div>
+    <!-- End Custom Audio Player Section -->
+
+    <script>
+        // --- Custom Audio Player Logic ---
+        const audio = new Audio(); // Create a new Audio object
+        const playPauseButton = document.getElementById('playPauseButton');
+        const prevButton = document.getElementById('prevButton');
+        const nextButton = document.getElementById('nextButton');
+        const progressBar = document.getElementById('progressBar');
+        const currentTimeSpan = document.getElementById('currentTime');
+        const durationSpan = document.getElementById('duration');
+        const backgroundVideo = document.getElementById('backgroundVideo'); // Get reference to the video element
+        const songTitleDisplay = document.getElementById('songTitleDisplay'); // Get reference to the song title display element
+
+        // Array of audio tracks with associated video URLs and text colors
+        const tracks = [
+            { name: "after hours", src: "https://raw.githubusercontent.com/nikshkn/audio-visual-streaming-test/main/after%20hours.mp3", videoSrc: "https://raw.githubusercontent.com/nikshkn/audio-visual-streaming-test/main/cyberpunk%20walking%20test.mp4", textColor: "#b182bb" },
+            { name: "citadel 216", src: "https://raw.githubusercontent.com/nikshkn/audio-visual-streaming-test/main/citadel%20216.mp3", videoSrc: "https://raw.githubusercontent.com/nikshkn/audio-visual-streaming-test/main/cyberpunk%20city%20pan%20test.mp4", textColor: "#29b78c" },
+            { name: "red lights", src: "https://raw.githubusercontent.com/nikshkn/audio-visual-streaming-test/main/red%20lights.mp3", videoSrc: "https://raw.githubusercontent.com/nikshkn/audio-visual-streaming-test/main/cyberspace%20man%20run%20test.mp4", textColor: "#c2205b" }
+        ];
+        let currentTrackIndex = 0;
+        let isPlaying = false; // Track playback state
+        let hasInteracted = false; // New flag to track first user interaction
+
+        // Function to format time for display (e.g., 0:00)
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+        }
+
+        // Load a specific track (but don't play automatically)
+        function loadTrack(index) {
+            console.log("loadTrack called for index:", index);
+            audio.src = tracks[index].src;
+            audio.volume = 1.0; // Set volume to 100%
+
+            backgroundVideo.src = tracks[index].videoSrc;
+
+            songTitleDisplay.textContent = tracks[index].name;
+            songTitleDisplay.style.color = tracks[index].textColor; // Set the text color dynamically
+
+            // If not currently playing, ensure play button is shown
+            if (!isPlaying) {
+                playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
+            }
+            // Reset progress bar and time display for the new track
+            progressBar.value = 0;
+            currentTimeSpan.textContent = "0:00";
+            durationSpan.textContent = "0:00";
+        }
+
+        // Initialize display with a prompt, but don't load media yet
+        songTitleDisplay.textContent = "Click Play to Start :)";
+        currentTimeSpan.textContent = "0:00";
+        durationSpan.textContent = "0:00";
+        // Set initial color for the "Click Play to Start" message
+        songTitleDisplay.style.color = "#FFFFFF"; // White color for the initial message
+
+        // Play/Pause functionality
+        playPauseButton.addEventListener('click', async () => {
+            console.log("Play/Pause button clicked. isPlaying:", isPlaying, "hasInteracted:", hasInteracted);
+
+            // If it's the very first interaction, load the first track
+            if (!hasInteracted) {
+                loadTrack(currentTrackIndex);
+                hasInteracted = true;
+            }
+
+            if (audio.paused) {
+                try {
+                    console.log("Attempting to play audio and video...");
+                    await audio.play();
+                    await backgroundVideo.play();
+                    playPauseButton.innerHTML = '<i class="fas fa-pause"></i>';
+                    isPlaying = true;
+                    console.log("Playback started successfully.");
+                } catch (error) {
+                    console.error("Playback prevented by user gesture or other error:", error);
+                    playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
+                    isPlaying = false;
+                    // Provide a user-friendly message if autoplay is blocked
+                    songTitleDisplay.textContent = "Playback blocked. Click again!";
+                    songTitleDisplay.style.color = "#FF0000"; // Red for error message
+                }
+            } else {
+                console.log("Pausing audio and video...");
+                audio.pause();
+                backgroundVideo.pause();
+                playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
+                isPlaying = false;
+                console.log("Playback paused.");
+            }
+        });
+
+        // Next track functionality
+        nextButton.addEventListener('click', () => {
+            console.log("Next button clicked.");
+            currentTrackIndex = (currentTrackIndex + 1) % tracks.length;
+            loadTrack(currentTrackIndex);
+            // If currently playing, attempt to play the new track immediately
+            if (isPlaying) {
+                audio.play().then(() => {
+                    backgroundVideo.play();
+                    playPauseButton.innerHTML = '<i class="fas fa-pause"></i>';
+                }).catch(error => {
+                    console.error("Autoplay of next track prevented:", error);
+                    playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
+                    isPlaying = false;
+                });
+            }
+        });
+
+        // Previous track functionality
+        prevButton.addEventListener('click', () => {
+            console.log("Previous button clicked.");
+            currentTrackIndex = (currentTrackIndex - 1 + tracks.length) % tracks.length;
+            loadTrack(currentTrackIndex);
+            // If currently playing, attempt to play the new track immediately
+            if (isPlaying) {
+                audio.play().then(() => {
+                    backgroundVideo.play();
+                    playPauseButton.innerHTML = '<i class="fas fa-pause"></i>';
+                }).catch(error => {
+                    console.error("Autoplay of previous track prevented:", error);
+                    playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
+                    isPlaying = false;
+                });
+            }
+        });
+
+        // Update progress bar and current time as audio plays
+        audio.addEventListener('timeupdate', () => {
+            const progress = (audio.currentTime / audio.duration) * 100;
+            progressBar.value = isNaN(progress) ? 0 : progress;
+            currentTimeSpan.textContent = formatTime(audio.currentTime);
+        });
+
+        // Update total duration when metadata is loaded
+        audio.addEventListener('loadedmetadata', () => {
+            durationSpan.textContent = formatTime(audio.duration);
+        });
+
+        // Seek functionality (clicking on progress bar)
+        progressBar.addEventListener('input', () => {
+            const seekTime = (progressBar.value / 100) * audio.duration;
+            audio.currentTime = seekTime;
+            backgroundVideo.currentTime = seekTime;
+        });
+
+        // Automatically play next track when current one ends
+        audio.addEventListener('ended', () => {
+            console.log("Current track ended.");
+            currentTrackIndex = (currentTrackIndex + 1) % tracks.length;
+            loadTrack(currentTrackIndex); // Load the next track
+            // Attempt to play the next track immediately after loading
+            audio.play().then(() => {
+                backgroundVideo.play();
+                playPauseButton.innerHTML = '<i class="fas fa-pause"></i>';
+                isPlaying = true;
+            }).catch(error => {
+                console.error("Autoplay of next track after end prevented:", error);
+                playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
+                isPlaying = false;
+            });
+        });
+
+        // Ensure initial volume is set
+        audio.volume = 1.0;
+    </script>
+</body>
+</html>
